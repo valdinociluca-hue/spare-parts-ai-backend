@@ -66,5 +66,23 @@ class Settings(BaseSettings):
     confidence_threshold: float = 0.6
     draft_only_mode:      bool  = True
 
+    # ── Embeddings ────────────────────────────────────────────
+    # paraphrase-multilingual-mpnet-base-v2 = 768d, good Russian support
+    embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"
+    vector_dim:      int = 768
+
+    # ── Website chat ──────────────────────────────────────────
+    # Allowed CORS origins for the website widget
+    website_origins: str = "https://lvtrade.ru,https://www.lvtrade.ru"
+    # Cookie TTL for persistent chat sessions (seconds)
+    session_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
+
+    # ── Ingestion ─────────────────────────────────────────────
+    website_base_url: str = "https://lvtrade.ru"
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.website_origins.split(",") if o.strip()]
+
 
 settings = Settings()

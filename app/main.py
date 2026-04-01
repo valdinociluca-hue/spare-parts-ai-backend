@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import health, webhooks
+from app.api.routes import chat, health, webhooks
 from app.config.logging import configure_logging
 from app.config.settings import settings
 from app.db.session import create_tables
@@ -26,8 +26,10 @@ async def lifespan(app: FastAPI):
                 settings.environment, settings.llm_provider)
     await create_tables()
     logger.info("Database ready")
-    if settings.draft_only_mode:
-        logger.info("DRAFT-ONLY MODE — no messages sent to customers")
+    # Eager-import tools so they self-register on the tool_registry singleton
+    import app.tools.catalog_search   # noqa: F401
+    import app.tools.document_search  # noqa: F401
+    import app.tools.escalation       # noqa: F401
     yield
     logger.info("Shutting down")
 
@@ -40,16 +42,18 @@ app = FastAPI(
     redoc_url   = "/redoc" if not settings.is_production else None,
 )
 
+_origins = settings.allowed_origins if settings.is_production else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
-    allow_credentials = False,
-    allow_methods     = ["GET", "POST"],
+    allow_origins     = _origins,
+    allow_credentials = True,
+    allow_methods     = ["GET", "POST", "OPTIONS"],
     allow_headers     = ["*"],
 )
 
 app.include_router(health.router,   prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
+app.include_router(chat.router,     prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)
