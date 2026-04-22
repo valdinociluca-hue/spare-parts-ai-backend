@@ -1,0 +1,51 @@
+version: "3.9"
+
+# Production stack.
+# Run with: docker compose -f docker/docker-compose.prod.yml up -d
+
+services:
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: spare_parts_db
+    restart: always
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB:-spare_parts}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # bind to localhost only — not public
+    healthcheck:
+      test:         ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval:     10s
+      timeout:      5s
+      retries:      5
+      start_period: 15s
+
+  api:
+    build:
+      context:    ..
+      dockerfile: docker/Dockerfile
+    image: spare-parts-api:latest
+    container_name: spare_parts_api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-spare_parts}
+      ENVIRONMENT:  production
+    ports:
+      - "127.0.0.1:8000:8000"   # bind to localhost only — Nginx proxies
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
+    driver: local
