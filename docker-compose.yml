@@ -1,47 +1,22 @@
-version: "3.9"
-
-# Local development stack.
-# In production, replace db with a managed database (RDS, Cloud SQL, etc.)
-
 services:
-
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: spare_parts_db
-    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    container_name: partsai-postgres
+    ports:
+      - "54322:5432"
     environment:
-      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB:       ${POSTGRES_DB:-spare_parts}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/zzz_seed.sql:ro
     healthcheck:
-      test:         ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval:     10s
-      timeout:      5s
-      retries:      5
-      start_period: 10s
-
-  api:
-    build:
-      context:    .
-      dockerfile: docker/Dockerfile
-    container_name: spare_parts_api
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-spare_parts}
-    ports:
-      - "8000:8000"
-    volumes:
-      - .:/app   # hot-reload in development; remove in production
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
-    driver: local

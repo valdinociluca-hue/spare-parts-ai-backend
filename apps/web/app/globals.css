@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand: 21 101 192; /* default LV Trade blue; overridden per-tenant */
+    --brand-fg: 255 255 255;
+    --radius: 0.5rem;
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-slate-900 antialiased;
+}

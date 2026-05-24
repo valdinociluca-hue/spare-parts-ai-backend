@@ -1,0 +1,14 @@
+{
+  "name": "@partsai/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FastAPI backend (Python). package.json exists only so Turbo/pnpm can orchestrate.",
+  "scripts": {
+    "dev": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "build": "echo 'no build step — Dockerfile bakes the image'",
+    "lint": "ruff check app tests",
+    "type-check": "mypy app",
+    "test": "pytest -v",
+    "clean": "rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__"
+  }
+}

@@ -1,140 +1,67 @@
-# Architecture Overview
-
-## System Role
-
-This service is the **AI processing middleware** for the spare parts B2B company.
-It sits between the customer-facing CRM (Bitrix24) and the internal team (VK Teams).
+# Architecture
 
 ```
-Customer channels
-  ├── Telegram
-  ├── Email
-  ├── MAX messenger
-  └── Bitrix (web form, phone, etc.)
-         │
-         ▼  webhooks / events
-┌─────────────────────────────┐
-│   spare-parts-ai-backend    │
-│                             │
-│  1. Normalise inbound msg   │
-│  2. Classify (LLM)          │──► PostgreSQL (request logs, audit trail)
-│  3. Extract fields          │
-│  4. Generate draft reply    │──► RAG (vector store, catalogue lookup)
-│  5. Escalation decision     │
-│  6. Notify team             │──► VK Teams (internal chat)
-└─────────────────────────────┘
-         │
-         ▼  (post-MVP, after human approval)
-   Bitrix / Telegram / Email  ──► Customer reply
+┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+│  Tenant site (e.g.   │   │ <slug>.partsai.com   │   │ admin.partsai.com    │
+│  lvtrade.ru) loads   │   │ Tenant dashboard     │   │ Super-admin          │
+│  widget.js           │   │ (apps/web)           │   │ (apps/web)           │
+└──────────┬───────────┘   └──────────┬───────────┘   └──────────┬───────────┘
+           │                          │                          │
+           ▼                          ▼                          ▼
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                  api.partsai.com (apps/api, FastAPI)                  │
+  │  Tenant resolution: widget API key | JWT claim | X-Tenant-Slug header │
+  │  Modules: /v1/parts (id+search) · /v1/chat · /v1/orders               │
+  └─────────┬───────────────────┬──────────────────────┬───────────────────┘
+            │                   │                      │
+            ▼                   ▼                      ▼
+   ┌────────────────┐  ┌────────────────┐    ┌────────────────────┐
+   │ Supabase       │  │ Pinecone       │    │ LLM router         │
+   │ Postgres + RLS │  │ vector index   │    │  ├── YandexGPT (RU)│
+   │ + Auth + Blob  │  │ (per-tenant    │    │  └── Claude (GLOBAL)│
+   │                │  │  namespace)    │    │ + OpenAI embeddings│
+   └────────────────┘  └────────────────┘    └────────────────────┘
 ```
 
----
+## Multi-tenancy invariants
 
-## Layer Responsibilities
+1. Every table has `tenant_id UUID NOT NULL`.
+2. Every API request resolves a tenant *before* any handler logic runs.
+3. Every DB query in `apps/api/app/db/` accepts `tenant_id` and filters by it.
+4. Supabase RLS provides defense-in-depth: even if a query forgets the filter, the row policy enforces isolation.
+5. Pinecone uses `namespace=tenant_id` so vector search cannot leak cross-tenant.
+6. A test suite (`apps/api/tests/test_tenant_isolation.py`) proves no API endpoint returns another tenant's data.
 
-### `app/api/routes/`
-HTTP boundary only. Routes parse incoming requests, optionally validate
-a shared secret, and immediately delegate to the service layer.
-No business logic. No direct DB access.
+## Tenant resolution order (backend)
 
-### `app/services/`
-Business workflow owners. A service method represents one complete
-business operation (e.g. "handle an incoming customer request").
-Services coordinate repositories, agents, and notification — and own
-transaction boundaries.
+1. `X-Tenant-Slug` header — only honored when `Authorization: Bearer <service-role>` (internal scripts).
+2. `widget_api_key` (query param or `X-Widget-Key` header) — looked up in `tenants.widget_api_key`. Used by the embedded widget.
+3. `Authorization: Bearer <jwt>` — JWT issued by Supabase Auth, with `tenant_id` claim. Used by the dashboard.
 
-### `app/agents/`
-Autonomous reasoning units. Each agent has a single responsibility
-and communicates with the LLM via `app/llm/client.py`.
-Agents do not talk to the DB or external APIs directly.
+`apps/api/app/deps.get_current_tenant` implements this order and 401s if no
+tenant can be resolved.
 
-- `ClassifierAgent` — categorise + extract fields
-- `ResponderAgent` — generate draft reply
-- `Orchestrator` — coordinate multiple agents per request
+## Module surface
 
-### `app/llm/`
-LLM API abstraction. All agents call `llm_client.chat()` — never
-httpx directly. Handles retry, JSON extraction, schema validation.
+| Module | Endpoint | Where |
+|--------|----------|-------|
+| 1. Parts ID | `POST /api/v1/parts/identify` | `apps/api/app/routers/parts.py` |
+| 1. Parts search | `POST /api/v1/parts/search` | same |
+| 2. Technician | `POST /api/v1/chat/technician` | `apps/api/app/routers/chat.py` |
+| 3. Order | `POST /api/v1/orders/draft` | `apps/api/app/routers/orders.py` |
 
-### `app/prompts/`
-Prompt templates. Separated from agent logic so they can be iterated
-without touching Python code. Each prompt is a class with a `build()` method.
+## LLM routing
 
-### `app/rag/`
-Retrieval-Augmented Generation. Not active in MVP.
-Will retrieve relevant catalogue entries to ground LLM responses
-in real part data, preventing hallucination of specifications.
+`apps/api/app/llm/router.py::get_llm_for_tenant` returns a `BaseLLMClient`
+implementation based on `tenant.llm_provider`. Both implementations
+expose the same interface:
 
-### `app/integrations/`
-External service clients. One file per service.
-Each integration has a single concern: talk to one external API.
-No business logic — that belongs in services.
-
-### `app/db/`
-Database access layer.
-- `models.py` — SQLAlchemy ORM table definitions
-- `session.py` — async engine + FastAPI DI session factory
-- `repositories/` — typed data-access methods (no raw SQL in services)
-
-### `app/core/`
-Shared domain types used across layers.
-- `schemas.py` — IncomingRequest, PipelineResult, enums
-- `exceptions.py` — typed exception hierarchy
-
-### `app/config/`
-Typed configuration via pydantic-settings.
-All secrets and environment-specific values go here.
-
-### `app/utils/`
-Stateless helper functions with no business logic dependency.
-Retry decorators, text utilities, etc.
-
----
-
-## Data Flow (per request)
-
-```
-1. Bitrix webhook POST → routes/webhooks.py
-2. Payload parsed → integrations/bitrix.py → IncomingRequest
-3. RequestService.handle_incoming(request)
-4.   → RequestRepository.create(request)          [persist raw]
-5.   → Orchestrator.process(request)
-6.       → ClassifierAgent.run(request)
-7.           → ClassificationPrompt.build(text)
-8.           → llm_client.chat(messages)           [LLM call]
-9.           → parser.extract_json + validate()    [schema check]
-10.          → ClassificationResult
-11.      → [if spare_part] RAG.retrieve(query)     [future]
-12.      → ResponderAgent.run(classification)
-13.          → llm_client.chat(messages)            [LLM call]
-14.          → DraftReply
-15.      → PipelineResult
-16.  → RequestRepository.save_classification(result)
-17.  → NotificationService.notify_team(result)
-18.      → VKTeamsClient.send_text(message)
-19. → Return WebhookResponse to Bitrix
+```python
+class BaseLLMClient:
+    async def chat(self, messages: list[Message], **kwargs) -> CompletionResponse: ...
+    async def embed(self, text: str) -> list[float]: ...
 ```
 
----
-
-## Database Schema (planned)
-
-| Table | Purpose |
-|---|---|
-| `request_logs` | Master record per inbound request |
-| `classification_logs` | LLM output — category, confidence, draft |
-| `processing_events` | Append-only audit trail |
-
-Vector store (pgvector or Qdrant):
-| Collection | Purpose |
-|---|---|
-| `catalogue_parts` | Spare parts with embeddings for RAG retrieval |
-
----
-
-## Scalability Notes
-
-- **Horizontal scaling**: the service is stateless — run N replicas behind a load balancer
-- **Async queue**: webhook endpoints should enqueue work (Celery/ARQ) rather than processing inline, to handle traffic spikes without timeouts
-- **Multi-agent expansion**: the Orchestrator pattern supports adding new agents (EscalationAgent, PartSelectionAgent) without changing existing agents
-- **Multi-tenant**: add `company_id` to all tables and route configs to support multiple Bitrix portals
+Embeddings always go through OpenAI (`text-embedding-3-small`) regardless
+of chat provider — Yandex embeddings exist but OpenAI is cheaper and
+better at multilingual.
