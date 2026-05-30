@@ -15,6 +15,8 @@ class IdentifyRequest(BaseModel):
 class ProductMatch(BaseModel):
     sku: str
     name: str
+    brand: str | None = None
+    manufacturer_part_number: str | None = None
     score: float
     stock: float
     price: float | None
@@ -23,8 +25,15 @@ class ProductMatch(BaseModel):
     reasoning: str = ""
 
 
+class TokenUsage(BaseModel):
+    provider: str
+    model: str
+    tokens_used: int
+
+
 class IdentifyResponse(BaseModel):
     matches: list[ProductMatch]
+    usage: TokenUsage
 
 
 class SearchFilters(BaseModel):

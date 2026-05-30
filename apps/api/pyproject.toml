@@ -13,6 +13,7 @@ dependencies = [
   "python-jose[cryptography]>=3.3.0",
   "anthropic>=0.40.0",
   "openai>=1.59.0",
+  "pinecone>=5.4.0",
   "python-multipart>=0.0.20",
   "structlog>=24.5.0",
 ]

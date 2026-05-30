@@ -25,10 +25,12 @@ class Tenant:
     logo_url: str | None
     language: str
     plan: str
+    currency: str = "EUR"
 
 
 _TENANT_QUERY = """
-    select id, slug, name, region, llm_provider, brand_color, logo_url, language, plan
+    select id, slug, name, region, llm_provider, brand_color, logo_url, language, plan,
+           coalesce(currency, 'EUR') as currency
     from public.tenants
     where {filter}
     limit 1
@@ -53,6 +55,7 @@ async def _load_tenant_by(
         logo_url=row["logo_url"],
         language=row["language"],
         plan=row["plan"],
+        currency=row["currency"],
     )
 
 

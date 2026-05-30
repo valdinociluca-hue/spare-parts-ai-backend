@@ -56,3 +56,4 @@ data/*.xml
 # Supabase local
 supabase/.branches/
 supabase/.temp/
+.env

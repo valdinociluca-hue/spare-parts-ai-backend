@@ -38,10 +38,11 @@ class Settings(BaseSettings):
     yandex_api_base: str = "https://llm.api.cloud.yandex.net"
 
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_model: str = "claude-sonnet-4-20250514"
 
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dim: int = 1536
 
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1500

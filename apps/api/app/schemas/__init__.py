@@ -1,5 +1,12 @@
 from .chat import ChatMessageIn, ChatMessageOut, ChatResponse
-from .parts import IdentifyRequest, ProductMatch, SearchRequest, SearchResponse
+from .parts import (
+    IdentifyRequest,
+    IdentifyResponse,
+    ProductMatch,
+    SearchRequest,
+    SearchResponse,
+    TokenUsage,
+)
 from .tenant import TenantOut
 
 __all__ = [
@@ -7,8 +14,10 @@ __all__ = [
     "ChatMessageOut",
     "ChatResponse",
     "IdentifyRequest",
+    "IdentifyResponse",
     "ProductMatch",
     "SearchRequest",
     "SearchResponse",
     "TenantOut",
+    "TokenUsage",
 ]
